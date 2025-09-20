@@ -1,3 +1,6 @@
 *.json filter=lfs diff=lfs merge=lfs -text
 *.pkl filter=lfs diff=lfs merge=lfs -text
+<<<<<<< HEAD
 data/csv_df_final.csv filter=lfs diff=lfs merge=lfs -text
+=======
+>>>>>>> ffc7be3 (eda finalizado df_final salvo)
