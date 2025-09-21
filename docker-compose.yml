@@ -1,0 +1,8 @@
+services:
+  api:
+    build: .
+    image: fastapi-fiap_challenge05:latest
+    environment:
+      - PORT=80
+    ports:
+      - "80:80"
