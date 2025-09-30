@@ -7,7 +7,7 @@ import pandas as pd
 # Adiciona o diretório 'src' ao caminho para que o Python encontre 'main.py'
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'app')))
 
 # Importa o app DEPOIS de ajustar o path
 from main import app

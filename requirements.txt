@@ -11,3 +11,11 @@ starlette==0.48.0
 typing-inspection==0.4.1
 typing_extensions==4.15.0
 uvicorn==0.36.0
+scikit-learn==1.4.2
+nltk==3.9.1
+seaborn==0.13.2
+pandas==2.0.3
+matplotlib==3.9.2
+uvicorn==0.33.0
+pytest==8.4.2
+httpx==0.28.1
