@@ -1,7 +1,7 @@
 import requests
 
 url = "http://127.0.0.1:8000/rank/5183"
-params = {"top_n": 5}  # número de candidatos a retornar
+params = {"top_n": 5}  
 
 response = requests.post(url, params=params)
 

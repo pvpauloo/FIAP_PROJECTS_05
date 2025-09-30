@@ -19,3 +19,4 @@ matplotlib==3.9.2
 uvicorn==0.33.0
 pytest==8.4.2
 httpx==0.28.1
+mlflow==3.4.0

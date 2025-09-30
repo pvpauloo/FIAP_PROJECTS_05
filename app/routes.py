@@ -7,16 +7,16 @@ from sklearn.metrics.pairwise import cosine_similarity
 import joblib
 import hashlib
 import re, unicodedata
-# caminhos
+from app.logging import *
+from time import perf_counter
+
 model = joblib.load("app/model/model.joblib")
 arts  = joblib.load("app/model/artifacts.joblib")
 tfidf = arts["tfidf"]
-feat_names = arts["feat_names"]  # ordem oficial das features
+feat_names = arts["feat_names"]  
 MAP_LVL = arts.get("map_lvl", {})
 MAP_SENIOR = arts.get("map_senior", {})
 skills = set(arts.get("skills_seed", [])) | set(arts.get("skills_mined_sample", []))
-
-# --- 1. Modelos Pydantic ---
 
 class CandidateRank(BaseModel):
     id_candidato: int
@@ -114,18 +114,15 @@ def _skills_overlap(job_text: str, cv_text: str, skills: set) -> int:
     return len(sj & sc)
 
 def build_feature_row(row):
-    # textos base (iguais ao treino)
     job_text = str(row.get("job_text", "")) or (
         str(row.get("atividades_vaga","")) + " " + str(row.get("competencias_vaga",""))
     )
     cv_text  = str(row.get("cv_text", "")) or str(row.get("cv_texto_pt",""))
 
-    # sim_tfidf
     X_job = tfidf.transform([_norm_txt(job_text)])
     X_cv  = tfidf.transform([_norm_txt(cv_text)])
     sim_tfidf = float(cosine_similarity(X_job, X_cv)[0,0])
 
-    # idiomas
     vi = _map_level(row.get("nivel_ingles_vaga",""), MAP_LVL)
     ci = _map_level(row.get("applicant_nivel_ingles",""), MAP_LVL)
     ingles_ok = int(ci >= vi)
@@ -134,13 +131,11 @@ def build_feature_row(row):
     ce = _map_level(row.get("applicant_nivel_espanhol",""), MAP_LVL)
     espanhol_ok = int(ce >= ve)
 
-    # senioridade
     vaga_sen  = _map_level(row.get("nivel_profissional_vaga",""), MAP_SENIOR)
     cand_sen  = _map_level(row.get("applicant_nivel_profissional",""), MAP_SENIOR)
     senior_ok = int(cand_sen >= vaga_sen)
     senior_gap = int(np.clip(cand_sen - vaga_sen, -3, 3))
 
-    # flags kw (no job e no cv)
     def flag_pair(kw: str):
         cv_f  = _contains_kw(cv_text, kw)
         job_f = _contains_kw(job_text, kw)
@@ -152,17 +147,14 @@ def build_feature_row(row):
     cv_aws, job_aws, aws_match       = flag_pair("aws")
     cv_orc, job_orc, orc_match       = flag_pair("oracle")
 
-    # skills
     skills_in_job = _count_skills(job_text, skills)
     skills_in_cv  = _count_skills(cv_text, skills)
     skills_ovlp   = _skills_overlap(job_text, cv_text, skills)
 
-    # áreas
     areas_vaga = _split_areas(row.get("areas_atuacao_vaga",""))
     areas_cand = _split_areas(row.get("applicant_area_atuacao",""))
     area_jacc  = float(_jaccard(areas_vaga, areas_cand))
 
-    # Mapa: nome->valor (mesma semântica do treino)
     feats = {
         "sim_tfidf": sim_tfidf,
         "ingles_ok": ingles_ok,
@@ -189,7 +181,6 @@ def build_feature_row(row):
         "skills_overlap": skills_ovlp,
         "area_jacc": area_jacc,
     }
-    # retorna vetor NA MESMA ORDEM de feat_names
     return [feats.get(name, 0.0) for name in feat_names]
 
 
@@ -212,7 +203,7 @@ def select_fixed_candidates_for_job(job_id: str, df_candidatos: pd.DataFrame, k:
     return df.head(min(k, len(df)))
 
 
-# --- 2. Função para Registrar Rotas ---
+
 
 def register_routes(app, df_vagas, df_candidatos):
 
@@ -222,17 +213,31 @@ def register_routes(app, df_vagas, df_candidatos):
 
     @app.post("/rank/{job_id}", response_model=RankingResponse, tags=["Ranking"])
     def get_top_candidates_for_job(job_id: int, top_n: int = Query(5, ge=1, le=50)):
+        t0 = perf_counter()
         vaga_df = df_vagas[df_vagas["id_vaga"] == str(job_id)]
         if vaga_df.empty:
+
+            log_event(
+                level='warning',
+                event="rank_not_found",
+                path=r"/rank/{job_id}", method='POST', status=404,
+                job_id=job_id, top_n=top_n, duration_ms=(perf_counter()-t0)*1000
+            )
             raise HTTPException(status_code=404, detail=f"Vaga com ID {job_id} não encontrada.")
 
         try:
-            # candidatos candidatos “fixos” para a vaga (defina sua estratégia)
             df_cands = select_fixed_candidates_for_job(job_id, df_candidatos, max(top_n*5, 50))
+            n_in = 0 if df_cands is None else len(df_cands)
             if df_cands is None or df_cands.empty:
+                log_event(
+                    level="info",
+                    event="rank_empty_candidates",
+                    path=r"/rank/{job_id}", method='POST', status=200,
+                    job_id=job_id, top_n=top_n, n_candidates_input=n_in,
+                    n_candidates_scored=0, duration_ms=(perf_counter()-t0)*1000
+                )
                 return {"ranking": []}
 
-            # normaliza dtypes para merge
             vaga_df_norm = vaga_df.copy()
             vaga_df_norm["id_vaga"] = vaga_df_norm["id_vaga"].astype(str)
 
@@ -247,7 +252,6 @@ def register_routes(app, df_vagas, df_candidatos):
                 validate="m:1",
             )
 
-            # garante colunas de texto
             if "job_text" not in df_result.columns:
                 df_result["job_text"] = (
                     df_result.get("atividades_vaga","").fillna("").astype(str) + " " +
@@ -257,12 +261,20 @@ def register_routes(app, df_vagas, df_candidatos):
                 base_cv = "cv_texto_pt" if "cv_texto_pt" in df_result.columns else "cv_pt"
                 df_result["cv_text"] = df_result.get(base_cv,"").fillna("").astype(str)
 
-            # === >>> AQUI: mesmas 24 features do treino <<< ===
             X_rows = [build_feature_row(row) for _, row in df_result.iterrows()]
             X_new = np.array(X_rows, dtype=float)
 
-            # checagem de sanidade
             if X_new.shape[1] != len(feat_names):
+                err = f"Dimensão X_new ({X_new.shape[1]}) != feat_names ({len(feat_names)})"
+                log_event(
+                    level="error", event="rank_feature_mismatch",
+                    path=r"/rank/{job_id}", method='POST', status=500,
+                    job_id=job_id, top_n=top_n,
+                    n_candidates_input=n_in,
+                    n_candidates_scored=0,
+                    duration_ms=(perf_counter()-t0)*1000,
+                    error=err
+                )
                 raise HTTPException(status_code=500,
                                     detail=f"Dimensão de X_new ({X_new.shape[1]}) difere de feat_names ({len(feat_names)}).")
 
@@ -270,12 +282,9 @@ def register_routes(app, df_vagas, df_candidatos):
             df_scored = df_result.copy()
             df_scored["score"] = probs
 
-            # normaliza id_vaga no payload (opcional)
             if "id_vaga" in df_scored.columns:
                 df_scored["id_vaga"] = pd.to_numeric(df_scored["id_vaga"], errors="coerce").astype("Int64")
 
-            # ==== Fallbacks exigidos pelo response_model ====
-            # nome_candidato pode vir com outros nomes
             if "nome_candidato" not in df_scored.columns:
                 if "applicant_nome" in df_scored.columns:
                     df_scored["nome_candidato"] = df_scored["applicant_nome"].astype(str)
@@ -286,19 +295,16 @@ def register_routes(app, df_vagas, df_candidatos):
                 else:
                     df_scored["nome_candidato"] = ""
 
-            # id_candidato pode ter outro nome
             if "id_candidato" not in df_scored.columns:
                 if "codigo_profissional" in df_scored.columns:
                     df_scored["id_candidato"] = pd.to_numeric(
                         df_scored["codigo_profissional"], errors="coerce"
                     ).fillna(-1).astype(int)
                 else:
-                    df_scored["id_candidato"] = -1  # fallback
+                    df_scored["id_candidato"] = -1  
 
-            # score não pode ser NaN/inf para o Pydantic
             df_scored["score"] = pd.to_numeric(df_scored["score"], errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
-            # Seleciona colunas e ordena
             cols_payload = ["id_candidato", "nome_candidato", "score"]
             top = (
                 df_scored.sort_values("score", ascending=False)
@@ -307,12 +313,10 @@ def register_routes(app, df_vagas, df_candidatos):
                          .copy()
             )
 
-            # Cast final seguro de tipos (evita None no Pydantic)
             top["id_candidato"] = pd.to_numeric(top["id_candidato"], errors="coerce").fillna(-1).astype(int)
             top["nome_candidato"] = top["nome_candidato"].astype(str)
             top["score"] = pd.to_numeric(top["score"], errors="coerce").fillna(0.0).astype(float)
 
-            # Constrói objetos Pydantic explícitos
             ranking_items = [
                 CandidateRank(
                     id_candidato=int(row["id_candidato"]),
@@ -321,40 +325,174 @@ def register_routes(app, df_vagas, df_candidatos):
                 )
                 for _, row in top.iterrows()
             ]
+            log_event(
+                level="info",
+                event="rank_success",
+                path=r"/rank/{job_id}", method='POST', status=200,
+                job_id=job_id, top_n=top_n,
+                n_candidates_input=n_in,
+                n_candidates_scored=len(ranking_items),
+                duration_ms=(perf_counter()-t0)*1000
+            )
 
-            # Retorno como modelo Pydantic (nunca None)
             return RankingResponse(ranking=ranking_items)
 
         except HTTPException:
             raise
         except Exception as e:
+            log_event(
+                level="error",
+                event="rank_exception",
+                path=r"/rank/{job_id}", method='POST', status=500,
+                job_id=job_id, top_n=top_n,
+                duration_ms=(perf_counter()-t0)*1000,
+                error=str(e)
+            )
             raise HTTPException(status_code=500, detail=f"Falha ao ranquear candidatos: {e}")
 
     @app.get("/jobs/", response_model=PaginatedJobResponse, tags=["Vagas"])
     def list_jobs(skip: int = 0, limit: int = 20):
-        total_jobs = len(df_vagas)
-        jobs_slice = df_vagas.iloc[skip: skip + limit]
-        return {"total_jobs": total_jobs, "jobs": jobs_slice.to_dict(orient='records')}
+        t0 = perf_counter()
+        path, method = "/jobs/", "GET"
+        try:
+            total_jobs = len(df_vagas)
+            jobs_slice = df_vagas.iloc[skip: skip + limit]
+            payload = {"total_jobs": total_jobs, "jobs": jobs_slice.to_dict(orient='records')}
+
+            log_event(
+                level="info",
+                event="jobs_list_success",
+                path=path, method=method, status=200,
+                top_n=limit,  
+                n_candidates_input=total_jobs,          
+                n_candidates_scored=len(jobs_slice),   
+                duration_ms=(perf_counter()-t0)*1000,
+                error=None
+            )
+            return payload
+
+        except Exception as e:
+            log_event(
+                level="error",
+                event="jobs_list_exception",
+                path=path, method=method, status=500,
+                top_n=limit,
+                n_candidates_input=len(df_vagas) if df_vagas is not None else 0,
+                n_candidates_scored=0,
+                duration_ms=(perf_counter()-t0)*1000,
+                error=str(e)
+            )
+            raise HTTPException(status_code=500, detail=f"Falha ao listar vagas: {e}")
 
     @app.get("/jobs/{job_id}", response_model=Job, tags=["Vagas"])
     def get_job_by_id(job_id: int):
-        vaga = df_vagas[df_vagas['id_vaga'] == job_id]
-        if vaga.empty:
-            raise HTTPException(status_code=404, detail=f"Vaga com ID {job_id} não encontrada.")
-        return vaga.iloc[0].to_dict()
+        t0 = perf_counter()
+        path, method = f"/jobs/{job_id}", "GET"
+        try:
+            vaga = df_vagas[df_vagas['id_vaga'] == str(job_id)]
+            if vaga.empty:
+                log_event(
+                    level="warning",
+                    event="jobs_get_not_found",
+                    path=path, method=method, status=404,
+                    job_id=job_id,
+                    duration_ms=(perf_counter()-t0)*1000,
+                )
+                raise HTTPException(status_code=404, detail=f"Vaga com ID {job_id} não encontrada.")
+
+            result = vaga.iloc[0].to_dict()
+
+            log_event(
+                level="info",
+                event="jobs_get_success",
+                path=path, method=method, status=200,
+                job_id=job_id,
+                n_candidates_scored=1,
+                duration_ms=(perf_counter()-t0)*1000
+            )
+            return result
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_event(
+                level="error",
+                event="jobs_get_exception",
+                path=path, method=method, status=500,
+                job_id=job_id,
+                duration_ms=(perf_counter()-t0)*1000,
+                error=str(e)
+            )
+            raise HTTPException(status_code=500, detail=f"Falha ao obter vaga: {e}")
 
     @app.post("/jobs/", response_model=Job, status_code=status.HTTP_201_CREATED, tags=["Vagas"])
     def create_job(job: JobCreate):
-        nonlocal df_vagas
-        new_id = df_vagas['id_vaga'].max() + 1 if not df_vagas.empty else 1
-        new_job_data = job.model_dump()
-        new_job_data['id_vaga'] = new_id
-        new_job_df = pd.DataFrame([new_job_data])
-        df_vagas = pd.concat([df_vagas, new_job_df], ignore_index=True)
-        return new_job_data
+        t0 = perf_counter()
+        path, method = "/jobs/", "POST"
+        try:
+            nonlocal df_vagas
+            current_total = len(df_vagas)
+            new_id = int(df_vagas['id_vaga'].max()) + 1 if not df_vagas.empty else 1
+
+            new_job_data = job.model_dump()
+            new_job_data['id_vaga'] = int(new_id)
+
+            new_job_df = pd.DataFrame([new_job_data])
+            df_vagas = pd.concat([df_vagas, new_job_df], ignore_index=True)
+
+            log_event(
+                level="info",
+                event="jobs_create_success",
+                path=path, method=method, status=201,
+                job_id=new_id,
+                n_candidates_input=current_total, 
+                n_candidates_scored=len(df_vagas), 
+                duration_ms=(perf_counter()-t0)*1000
+            )
+            return new_job_data
+
+        except Exception as e:
+            log_event(
+                level="error",
+                event="jobs_create_exception",
+                path=path, method=method, status=500,
+                duration_ms=(perf_counter()-t0)*1000,
+                error=str(e)
+            )
+            raise HTTPException(status_code=500, detail=f"Falha ao criar vaga: {e}")
 
     @app.get("/candidates/", response_model=PaginatedCandidateResponse, tags=["Candidatos"])
     def list_candidates(skip: int = 0, limit: int = 20):
-        total_candidates = len(df_candidatos)
-        candidates_slice = df_candidatos.iloc[skip: skip + limit]
-        return {"total_candidates": total_candidates, "candidates": candidates_slice.to_dict(orient='records')}
+        t0 = perf_counter()
+        path, method = "/candidates/", "GET"
+        try:
+            total_candidates = len(df_candidatos)
+            candidates_slice = df_candidatos.iloc[skip: skip + limit]
+            payload = {
+                "total_candidates": total_candidates,
+                "candidates": candidates_slice.to_dict(orient='records')
+            }
+
+            log_event(
+                level="info",
+                event="candidates_list_success",
+                path=path, method=method, status=200,
+                top_n=limit,                        
+                n_candidates_input=total_candidates,
+                n_candidates_scored=len(candidates_slice), 
+                duration_ms=(perf_counter()-t0)*1000
+            )
+            return payload
+
+        except Exception as e:
+            log_event(
+                level="error",
+                event="candidates_list_exception",
+                path=path, method=method, status=500,
+                top_n=limit,
+                n_candidates_input=len(df_candidatos) if df_candidatos is not None else 0,
+                n_candidates_scored=0,
+                duration_ms=(perf_counter()-t0)*1000,
+                error=str(e)
+            )
+            raise HTTPException(status_code=500, detail=f"Falha ao listar candidatos: {e}")
