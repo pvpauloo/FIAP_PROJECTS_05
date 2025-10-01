@@ -194,11 +194,11 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # 3. Executar API (FastAPI + Uvicorn)
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
 
 # 4. Abrir docs
-# Swagger UI: http://localhost:8000/docs
-# Redoc:      http://localhost:8000/redoc
+# Swagger UI: http://localhost:8001/docs
+# Redoc:      http://localhost:8001/redoc
 ```
 
 ### 2) Docker
@@ -207,7 +207,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 docker build -t decision-match:latest .
 
 # Run da API
-docker run --rm -p 8000:8000 decision-match:latest
+docker run --rm -p 8001:8001 decision-match:latest
 ```
 
 ### 3) Docker Compose
@@ -228,7 +228,7 @@ docker compose up --build
 
 ### Exemplo de chamada (cURL)
 ```bash
-curl -X POST "http://localhost:8000/rank/123?top_n=5" -H "Content-Type: application/json" -d "{}"
+curl -X POST "http://localhost:8001/rank/123?top_n=5" -H "Content-Type: application/json" -d "{}"
 ```
 
 Resposta (exemplo):
