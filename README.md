@@ -51,8 +51,6 @@ Arquivos como **`dockerfile`** e **`docker-compose.yml`** se encontram na raiz d
 
 ## ✅ Matriz de Requisitos (Datathon) — *evidências*
 
-> Requisitos extraídos do PDF e cruzados com os artefatos do repo/código.
-
 1. **Treinamento do modelo preditivo** (pipeline completa, serialização `joblib`)  
    - **Evidência**: notebook de EDA/feature engineering e consolidação de dataset; artefatos serializados.  
    - **Indícios no código**: carregamento de **`model.joblib`** e **`artifacts.joblib`** com o vetorizar **TF‑IDF**:
