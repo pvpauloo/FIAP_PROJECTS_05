@@ -56,7 +56,7 @@ Arquivos como **`dockerfile`** e **`docker-compose.yml`** se encontram na raiz d
 1. **Treinamento do modelo preditivo** (pipeline completa, serialização `joblib`)  
    - **Evidência**: notebook de EDA/feature engineering e consolidação de dataset; artefatos serializados.  
    - **Indícios no código**: carregamento de **`model.joblib`** e **`artifacts.joblib`** com o vetorizar **TF‑IDF**:
-     ```python
+```python
 model = joblib.load("app/model/model.joblib")
 arts  = joblib.load("app/model/artifacts.joblib")
 tfidf = arts["tfidf"]
@@ -64,17 +64,17 @@ feat_names = arts["feat_names"]
 MAP_LVL = arts.get("map_lvl", {})
 MAP_SENIOR = arts.get("map_senior", {})
 skills = set(arts.get("skills_seed", [])) | set(arts.get("skills_mined_sample", []))
-     ```
+```
    - **Cálculo de matching**: uso de **similaridade do cosseno** para ranquear candidatos:
-     ```python
+```python
 cosine_similarity(X_job, X_cv)[0,0])
 
     vi = _map_level(row.get("nivel_ingles_vaga",""), MAP_LVL)
     ci = _map_level(row.get("applicant_nivel_ingles",""), MAP_LVL)
     ingles_ok = int(ci >= vi)
-
+```
   
-# ... (trecho truncado para o README)
+# Notebook
      ```
    - **Notebook**: consolidação de dados de `applicants`, `prospects` e `vagas` (amostra abaixo).  
 Notebook com **25 células**. Primeiro trecho relevante:
@@ -94,7 +94,7 @@ import nltk
 2. **Modularização do código** (arquitetura limpa em `.py`)  
    - **Evidência**: `app/main.py` (bootstrap/uvicorn), `app/routes.py` (endpoints), `app/model/` (artefatos), `tests/` (pytest).  
    - **Trecho** (FastAPI + lifespan):
-     ```python
+```python
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -109,20 +109,20 @@ async def lifespan(app: FastAPI):
     print("Encerrando a API...")
     dataframes.clear()
 # --- 2. Inicialização da Aplicação FastAPI ---
-     ```
+```
 
 3. **API para deployment do modelo** (`/predict` ou endpoint equivalente de ranking)  
    - **Evidência**: endpoint **`POST /rank/{job_id}`** com `top_n`, além de **health**, **jobs** e **candidates**.
-     ```python
+```python
 def register_routes(app, df_vagas, df_candidatos):
-     ```
+```
    - **Modelo de resposta**:
-     ```python
+```python
 class CandidateRank(BaseModel):
     id_candidato: int
     nome_candidato: str
     score: float
-     ```
+```
 
 4. **Empacotamento em Docker**  
    - **Evidência**: presença de **`dockerfile`** e **`docker-compose.yml`** no repositório.
@@ -133,7 +133,8 @@ class CandidateRank(BaseModel):
 6. **Teste da API**  
    - **Evidência**: suíte **pytest** em `tests/` (ex.: `teste_rotas.py`).  
    - **Trecho** (setup e smoke de rotas):
-     ```python
+
+```python
 # tests/test_main.py
 
 import pytest
@@ -141,6 +142,7 @@ from fastapi.testclient import TestClient
 import pandas as pd
 
 # Adiciona o diretório 'src' ao caminho para que o Python encontre 'main.py'
+
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..','app')))
@@ -174,7 +176,7 @@ def client_with_mock_data(monkeypatch):
     # função 'mock_load_data' em vez da original, evitando a leitura de arquivos.
     with TestClient(app) as client:
         yield client
-
+```
 
 # --- Testes Corrigidos para cada Rota da API ---
 # Note que todos os testes agora recebem 'client_with_mock_data' como argumento
@@ -183,17 +185,11 @@ def client_with_mock_data(monkeypatch):
 7. **Testes unitários (meta ≥80% cobertura)**  
    - **Evidência**: testes com `pytest`. (A cobertura exata depende da execução em CI; comandos abaixo).
 
-8. **Monitoramento contínuo (logs + painel de drift)**  
-   - **Evidência**: uso de **`app.logging.log_event(...)`** em rotas, gerando **logs estruturados** em `/logs`.  
-     *Observação:* o painel de **drift** pode ser acoplado (ex.: Prometheus/Grafana/Streamlit) e tem trilha sugerida na seção *Roadmap*.
-
-> Fonte dos requisitos do Datathon: ver PDF do desafio incluído na raiz do projeto.
-
 ---
 
 ## 🚀 Como executar
 
-### 1) Local (sem Docker)
+### 1) Local
 ```bash
 # 1. Python 3.10+ e virtualenv
 python -m venv .venv && source .venv/bin/activate
@@ -210,7 +206,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 # Redoc:      http://localhost:8000/redoc
 ```
 
-### 2) Docker (simples)
+### 2) Docker
 ```bash
 # Build da imagem
 docker build -t decision-match:latest .
@@ -258,36 +254,54 @@ Resposta (exemplo):
 - **Vetorização**: **TF‑IDF** (artefato persistido em `artifacts.joblib`).  
 - **Matching**: **cosine similarity** entre vetor da vaga e vetores de CVs → **ranking**.  
 - **Serialização**: `joblib` para `model.joblib` e `artifacts.joblib`.  
-- **Serviço**: FastAPI entrega `/rank/{{job_id}}` com payload Pydantic tipado.
+- **Serviço**: FastAPI entrega `/rank/{{job_id}}`.
 
 ---
 
 ## 🧪 Testes
 
-```bash
-# Executar testes
-pytest -q
+ - Os testes estão na pasta tests/teste_main.py
 
-# Cobertura (exemplo)
-pytest --cov=app --cov-report=term-missing -q
+```python
+...
+ef test_read_root(client_with_mock_data):
+    """Testa a rota de health check (GET /)."""
+    response = client_with_mock_data.get("/")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "message": "API online"}
+
+def test_get_job_by_id_success(client_with_mock_data):
+    """Testa a busca de uma vaga por ID existente."""
+    job_id = 4530
+    response = client_with_mock_data.get(f"/jobs/{job_id}")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["id_vaga"] == job_id
+
+def test_get_job_by_id_not_found(client_with_mock_data):
+    """Testa a busca de uma vaga com ID que não existe."""
+    job_id = 99999
+    response = client_with_mock_data.get(f"/jobs/{job_id}")
+    assert response.status_code == 404
+
+def test_rank_candidates_success(client_with_mock_data):
+    """Testa o ranking de candidatos para uma vaga existente."""
+    job_id = 5185
+    top_n = 1
+    response = client_with_mock_data.post(f"/rank/{job_id}?top_n={top_n}")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert "ranking" in data
+    # A lógica simulada na rota de ranking pode estar vazia, então testamos se a chave existe
+    assert isinstance(data["ranking"], list)
+
+def test_rank_candidates_job_not_found(client_with_mock_data):
+    """Testa o ranking para uma vaga inexistente."""
+    job_id = 99999
+    response = client_with_mock_data.post(f"/rank/{job_id}?top_n=5")
+    assert response.status_code == 404
+...
 ```
-
----
-
-## 📈 Monitoramento (logs) e Drift
-
-- **Logs estruturados** com `log_event(...)` para cada rota (sucesso/erro/latência).  
-- **Sugestão de painel de drift**: coletar distribuição de `scores` por vaga ao longo do tempo; comparar com janela de baseline (ex.: KS test) e alertar no dashboard (Grafana/Streamlit).
-
----
-
-## 🗺️ Roadmap (evoluções sugeridas)
-
-- **Melhorar avaliação offline** com métricas de ranking (ex.: NDCG@K, MAP@K).  
-- **Feedback loop** das(os) hunters/gestores para *reinforcement* com reordenação de ranking.  
-- **Features** comportamentais (tempo de resposta, engajamento) para enriquecer o matching.  
-- **Painel de drift** e alarmes (Prometheus/Grafana).
-
 ---
 
 ## 📚 Stack
@@ -296,6 +310,3 @@ pytest --cov=app --cov-report=term-missing -q
 
 ---
 
-## 👥 Créditos
-
-Projeto acadêmico para o **Datathon (PÓS TECH / FIAP)**. Agradecimentos ao time e à banca avaliadora.
