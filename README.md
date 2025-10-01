@@ -64,6 +64,7 @@ MAP_SENIOR = arts.get("map_senior", {})
 skills = set(arts.get("skills_seed", [])) | set(arts.get("skills_mined_sample", []))
 ```
    - **Cálculo de matching**: uso de **similaridade do cosseno** para ranquear candidatos:
+
 ```python
 cosine_similarity(X_job, X_cv)[0,0])
 
@@ -71,9 +72,9 @@ cosine_similarity(X_job, X_cv)[0,0])
     ci = _map_level(row.get("applicant_nivel_ingles",""), MAP_LVL)
     ingles_ok = int(ci >= vi)
 ```
-  
+
 # Notebook
-     ```
+
    - **Notebook**: consolidação de dados de `applicants`, `prospects` e `vagas` (amostra abaixo).  
 Notebook com **25 células**. Primeiro trecho relevante:
 
@@ -176,7 +177,6 @@ def client_with_mock_data(monkeypatch):
         yield client
 ```
 
-# --- Testes Corrigidos para cada Rota da API ---
 # Note que todos os testes agora recebem 'client_with_mock_data' como argumento
      ```
 
