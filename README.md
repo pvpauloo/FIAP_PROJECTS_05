@@ -177,9 +177,6 @@ def client_with_mock_data(monkeypatch):
         yield client
 ```
 
-# Note que todos os testes agora recebem 'client_with_mock_data' como argumento
-     ```
-
 7. **Testes unitários (meta ≥80% cobertura)**  
    - **Evidência**: testes com `pytest`. (A cobertura exata depende da execução em CI; comandos abaixo).
 
