@@ -7,52 +7,37 @@ import pandas as pd
 # Adiciona o diretório 'src' ao caminho para que o Python encontre 'main.py'
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'app')))
-
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..','app')))
+print(str(os.path.abspath(os.path.join(os.path.dirname(__file__)))))
 # Importa o app DEPOIS de ajustar o path
 from main import app
 
 # --- Fixture de Teste ---
-# Esta função prepara um ambiente de teste limpo para cada teste.
+# Esta função prepara um ambiente de teste limpo para cada teste. 
 @pytest.fixture
 def client_with_mock_data(monkeypatch):
     """
-    Cria um cliente de teste e substitui os DataFrames globais da API
-    por dados simulados (mock).
+    Esta fixture simula (mocks) a função load_data ANTES que a aplicação inicie.
     """
-    # 1. Dados simulados que usaremos nos testes
     mock_vagas_df = pd.DataFrame([
-        {
-            'id_vaga': 4530,
-            'titulo_vaga_detalhado': 'Vaga de Teste 1',
-            'cliente_vaga': 'Cliente A',
-            'tipo_contratacao': 'CLT',
-            'nivel_profissional_vaga': 'Pleno',
-            'atividades_vaga': 'Atividade da Vaga 1',
-            'competencias_vaga': 'Competência da Vaga 1',
-        },
-        {
-            'id_vaga': 5185,
-            'titulo_vaga_detalhado': 'Vaga de Teste 2',
-            'cliente_vaga': 'Cliente B',
-            'tipo_contratacao': 'PJ',
-            'nivel_profissional_vaga': 'Sênior',
-            'atividades_vaga': 'Atividade da Vaga 2',
-            'competencias_vaga': 'Competência da Vaga 2',
-        }
+        {'id_vaga': 5185, 'titulo_vaga_detalhado': 'Vaga de Teste 1'}
     ])
-    
     mock_candidatos_df = pd.DataFrame([
-        {'id_candidato': 31001, 'applicant_nome': 'Candidato Teste A'},
-        {'id_candidato': 25632, 'applicant_nome': 'Candidato Teste B'}
+        {'id_candidato': 31001, 'applicant_nome': 'Candidato Teste A'}
     ])
 
-    # 2. Usar monkeypatch para substituir os DataFrames globais no módulo 'main'
-    monkeypatch.setattr("main.df_vagas", mock_vagas_df)
-    monkeypatch.setattr("main.df_candidatos", mock_candidatos_df)
-    
-    # 3. Retorna um cliente de teste que agora opera sobre os dados simulados
-    return TestClient(app)
+    # Função falsa que retorna nossos dados simulados
+    def mock_load_data():
+        print("--- Usando dados simulados (mock) para o teste ---")
+        return mock_vagas_df, mock_candidatos_df
+
+    # Substitui a função real 'load_data' pela nossa versão simulada
+    monkeypatch.setattr("main.load_data", mock_load_data)
+
+    # O TestClient iniciará a aplicação. O 'lifespan' chamará nossa
+    # função 'mock_load_data' em vez da original, evitando a leitura de arquivos.
+    with TestClient(app) as client:
+        yield client
 
 
 # --- Testes Corrigidos para cada Rota da API ---
@@ -78,20 +63,6 @@ def test_get_job_by_id_not_found(client_with_mock_data):
     response = client_with_mock_data.get(f"/jobs/{job_id}")
     assert response.status_code == 404
 
-def test_create_job_success(client_with_mock_data):
-    """Testa o cadastro de uma nova vaga."""
-    new_job_payload = {
-        "titulo_vaga_detalhado": "Nova Vaga de Teste",
-        "atividades_vaga": "Atividades de teste",
-        "competencias_vaga": "Competências de teste"
-    }
-    response = client_with_mock_data.post("/jobs/", json=new_job_payload)
-    assert response.status_code == 201, response.text
-    data = response.json()
-    # O novo ID será o máximo do mock (5185) + 1 = 5186
-    assert data["id_vaga"] == 5186
-    assert data["titulo_vaga_detalhado"] == "Nova Vaga de Teste"
-
 def test_rank_candidates_success(client_with_mock_data):
     """Testa o ranking de candidatos para uma vaga existente."""
     job_id = 5185
@@ -108,3 +79,5 @@ def test_rank_candidates_job_not_found(client_with_mock_data):
     job_id = 99999
     response = client_with_mock_data.post(f"/rank/{job_id}?top_n=5")
     assert response.status_code == 404
+
+

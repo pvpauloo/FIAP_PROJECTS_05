@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import json
 import os
 import pandas as pd
@@ -71,16 +72,31 @@ def load_data():
     print(df_vagas.head())
     return df_vagas, df_candidatos
 
+dataframes = {}
 
-
-
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Gerenciador de ciclo de vida: carrega os dados na inicialização da API.
+    """
+    print("Iniciando a API e carregando os dados...")
+    df_vagas, df_candidatos = load_data()
+    dataframes["vagas"] = df_vagas
+    dataframes["candidatos"] = df_candidatos
+    yield
+    # Código executado no encerramento
+    print("Encerrando a API...")
+    dataframes.clear()
 # --- 2. Inicialização da Aplicação FastAPI ---
 
 app = FastAPI(
     title="API de Ranking de Candidatos",
     description="Uma API para encontrar os melhores candidatos para uma vaga usando Machine Learning.",
-    version="2.2.0"
+    version="2.2.0",
+    lifespan=lifespan
 )
+
+
 
 # Carrega os dados na inicialização
 df_vagas, df_candidatos = load_data()

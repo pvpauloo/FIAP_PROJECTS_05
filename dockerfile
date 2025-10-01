@@ -1,5 +1,5 @@
 # Imagem base leve (Debian slim para arm64/amd64 — roda bem no Mac M1/M2)
-FROM python:3.12-slim
+FROM python:3.11-slim-buster
 
 # Diretório de trabalho dentro do container
 WORKDIR /app
@@ -21,4 +21,4 @@ COPY . .
 EXPOSE 80
 
 # Comando de inicialização (host 0.0.0.0 para aceitar conexões externas)
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--reload", "--port", "8001"]
