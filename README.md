@@ -259,7 +259,7 @@ Resposta (exemplo):
 
 ```python
 ...
-ef test_read_root(client_with_mock_data):
+def test_read_root(client_with_mock_data):
     """Testa a rota de health check (GET /)."""
     response = client_with_mock_data.get("/")
     assert response.status_code == 200
