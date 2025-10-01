@@ -45,7 +45,7 @@ dockerfile
 docker-compose.yml
 requirements.txt
 ```
-Arquivos como **`dockerfile`** e **`docker-compose.yml`** se encontram na raiz do repositório público. (ver repositório no GitHub)
+Arquivos como **`dockerfile`** e **`docker-compose.yml`** se encontram na raiz do repositório público.
 
 ---
 
